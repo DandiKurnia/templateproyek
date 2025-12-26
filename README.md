@@ -13,28 +13,20 @@ Untuk menggunakan template ini, Anda memerlukan library berikut di Arduino IDE:
    - Library bawaan ESP32 untuk koneksi WiFi
    - Tidak perlu instalasi tambahan
 
-2. **FirebaseESP32.h**
-
+2. **Firebase_ESP_Client.h**
    - Library untuk integrasi Firebase dengan ESP32
-   - Install via Arduino Library Manager: `Firebase ESP32 Client`
+   - Install via Arduino Library Manager: `Firebase ESP Client`
    - Author: Mobizt
-   - Versi minimum: 4.x.x
-
-3. **addons/TokenHelper.h**
-
-   - Helper untuk autentikasi Firebase
-   - Otomatis terinstall bersama FirebaseESP32
-
-4. **addons/RTDBHelper.h**
-   - Helper untuk Firebase Realtime Database
-   - Otomatis terinstall bersama FirebaseESP32
+   - Versi minimum: 3.x.x atau lebih baru
+   - **PENTING**: Library ini sudah include semua yang dibutuhkan (Auth, RTDB, dll)
 
 ### Cara Instalasi Library
 
 1. Buka Arduino IDE
 2. Pergi ke **Sketch** → **Include Library** → **Manage Libraries**
-3. Cari "Firebase ESP32 Client" oleh Mobizt
+3. Cari "**Firebase ESP Client**" oleh Mobizt
 4. Klik **Install**
+5. Tunggu hingga instalasi selesai (library ini cukup besar ~5-10MB)
 
 ## 🔧 Konfigurasi Firebase
 
@@ -102,19 +94,25 @@ Contoh struktur data yang akan dibuat:
 
 ### Step 2: Edit Konfigurasi WiFi dan Firebase
 
-Buka file `esp32.ino` dan edit bagian berikut:
+Buka file `esp32.ino` dan edit bagian konfigurasi ini:
 
 ```cpp
-// WiFi Credentials
-#define WIFI_SSID "NAMA_WIFI_ANDA"
-#define WIFI_PASSWORD "PASSWORD_WIFI_ANDA"
+/* ================= WIFI ================= */
+#define WIFI_SSID "ISI_WIFI"              // Ganti dengan nama WiFi Anda
+#define WIFI_PASSWORD "ISI_PASSWORD"       // Ganti dengan password WiFi Anda
 
-// Firebase Credentials
-#define API_KEY "YOUR_FIREBASE_API_KEY"
-#define DATABASE_URL "YOUR_DATABASE_URL"
-#define USER_EMAIL "your-email@example.com"
-#define USER_PASSWORD "your-password"
+/* ================= FIREBASE ================= */
+#define API_KEY "ISI_API_KEY_FIREBASE"     // Dari Firebase Project Settings
+#define DATABASE_URL "https://NAMA-PROJECT-default-rtdb.firebaseio.com/"  // URL Realtime Database
+#define USER_EMAIL "EMAIL_FIREBASE"        // Email yang didaftarkan di Firebase Auth
+#define USER_PASSWORD "PASSWORD_FIREBASE"  // Password user Firebase
 ```
+
+**Cara mendapatkan credentials:**
+
+- **API_KEY**: Firebase Console → ⚙️ Settings → Project Settings → Web API Key
+- **DATABASE_URL**: Firebase Console → Realtime Database → URL di bagian atas (contoh: `https://your-project-default-rtdb.firebaseio.com/`)
+- **USER_EMAIL & PASSWORD**: Yang Anda buat di Firebase Authentication → Users
 
 ### Step 3: Upload ke ESP32
 
@@ -131,98 +129,132 @@ Buka file `esp32.ino` dan edit bagian berikut:
 
 ## 💻 Penjelasan Code
 
-### Inisialisasi WiFi
+### 1. Include Libraries
 
 ```cpp
-void setup() {
-  Serial.begin(115200);
-
-  // Koneksi WiFi
-  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(300);
-    Serial.print(".");
-  }
-  Serial.println("\nWiFi Connected!");
-  Serial.print("IP Address: ");
-  Serial.println(WiFi.localIP());
-}
+#include <WiFi.h>
+#include <Firebase_ESP_Client.h>
 ```
 
-### Konfigurasi Firebase
+- `WiFi.h`: Library untuk koneksi WiFi ESP32
+- `Firebase_ESP_Client.h`: Library utama Firebase (sudah include semua fitur)
+
+### 2. Deklarasi Firebase Objects
 
 ```cpp
-// Konfigurasi autentikasi
-config.api_key = API_KEY;
+FirebaseData fbdo;      // Object untuk operasi database
+FirebaseConfig config;  // Object untuk konfigurasi Firebase
+FirebaseAuth auth;      // Object untuk autentikasi
+```
+
+### 3. Inisialisasi WiFi (di `setup()`)
+
+```cpp
+WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+while (WiFi.status() != WL_CONNECTED) {
+  delay(500);
+  Serial.print(".");
+}
+Serial.println("\n✅ WiFi Connected");
+Serial.println(WiFi.localIP());
+```
+
+ESP32 akan terus mencoba connect sampai berhasil.
+
+### 4. Konfigurasi Firebase (di `setup()`)
+
+```cpp
+// Set autentikasi
 auth.user.email = USER_EMAIL;
 auth.user.password = USER_PASSWORD;
+
+// Set konfigurasi
+config.api_key = API_KEY;
 config.database_url = DATABASE_URL;
 
-// Callback untuk token
-config.token_status_callback = tokenStatusCallback;
-
-// Mulai koneksi Firebase
+// Mulai Firebase
 Firebase.begin(&config, &auth);
-Firebase.reconnectWiFi(true);
+Firebase.reconnectWiFi(true);  // Auto-reconnect jika WiFi putus
 ```
 
-### Menulis Data ke Realtime Database
+## 🔥 Cara Menggunakan Firebase di `loop()`
+
+Template ini sudah siap pakai! Anda tinggal tambahkan logic di fungsi `loop()`.
+
+### 📤 Menulis Data ke Firebase
+
+#### Menulis Integer
 
 ```cpp
-// Menulis data integer
-if (Firebase.RTDB.setInt(&fbdo, "/sensor/temperature", 28)) {
-  Serial.println("Temperature updated!");
-} else {
-  Serial.println("FAILED: " + fbdo.errorReason());
+void loop() {
+  if (Firebase.ready()) {
+    int suhu = 28;
+    if (Firebase.RTDB.setInt(&fbdo, "/sensor/suhu", suhu)) {
+      Serial.println("✅ Suhu terkirim!");
+    } else {
+      Serial.println("❌ Gagal: " + fbdo.errorReason());
+    }
+    delay(5000);  // Kirim setiap 5 detik
+  }
 }
-
-// Menulis data float
-Firebase.RTDB.setFloat(&fbdo, "/sensor/humidity", 65.5);
-
-// Menulis data string
-Firebase.RTDB.setString(&fbdo, "/status/message", "System OK");
-
-// Menulis data boolean
-Firebase.RTDB.setBool(&fbdo, "/control/led", true);
 ```
 
-### Membaca Data dari Realtime Database
+#### Menulis Float
 
 ```cpp
-// Membaca data integer
-if (Firebase.RTDB.getInt(&fbdo, "/sensor/temperature")) {
+float humidity = 65.5;
+Firebase.RTDB.setFloat(&fbdo, "/sensor/humidity", humidity);
+```
+
+#### Menulis String
+
+```cpp
+String status = "System OK";
+Firebase.RTDB.setString(&fbdo, "/status/message", status);
+```
+
+#### Menulis Boolean
+
+```cpp
+bool ledState = true;
+Firebase.RTDB.setBool(&fbdo, "/control/led", ledState);
+```
+
+### 📥 Membaca Data dari Firebase
+
+#### Membaca Integer
+
+```cpp
+if (Firebase.RTDB.getInt(&fbdo, "/control/threshold")) {
   if (fbdo.dataType() == "int") {
-    int temp = fbdo.intData();
-    Serial.println("Temperature: " + String(temp));
+    int threshold = fbdo.intData();
+    Serial.println("Threshold: " + String(threshold));
   }
 }
+```
 
-// Membaca data float
-if (Firebase.RTDB.getFloat(&fbdo, "/sensor/humidity")) {
-  if (fbdo.dataType() == "float") {
-    float hum = fbdo.floatData();
-    Serial.println("Humidity: " + String(hum));
-  }
-}
+#### Membaca Boolean
 
-// Membaca data boolean
+```cpp
 if (Firebase.RTDB.getBool(&fbdo, "/control/led")) {
   if (fbdo.dataType() == "boolean") {
-    bool ledState = fbdo.boolData();
-    Serial.println("LED State: " + String(ledState));
+    bool led = fbdo.boolData();
+    digitalWrite(LED_PIN, led);  // Kontrol LED
   }
 }
 ```
 
-### Menulis Multiple Data (JSON)
+### 📦 Menulis Multiple Data (JSON)
 
 ```cpp
 FirebaseJson json;
-json.set("temperature", 28.5);
+json.set("suhu", 28.5);
 json.set("humidity", 65.2);
-json.set("pressure", 1013.25);
+json.set("status", "aktif");
 
-Firebase.RTDB.setJSON(&fbdo, "/sensor", &json);
+if (Firebase.RTDB.setJSON(&fbdo, "/sensor", &json)) {
+  Serial.println("✅ Data JSON terkirim!");
+}
 ```
 
 ## 🔐 Firebase Rules untuk Development
@@ -273,31 +305,70 @@ Untuk testing, gunakan rules berikut di Firebase Console → Realtime Database �
 - Cek API Key
 - Pastikan waktu ESP32 tersinkronisasi (library akan auto-sync)
 
-## 📱 Contoh Penggunaan
+## 📱 Contoh Project IoT
 
-### 1. IoT Monitoring Sensor
+### 1. 🌡️ Monitoring Suhu Real-time
 
-- Baca sensor (suhu, kelembaban, dll)
-- Kirim ke Firebase setiap X detik
-- Monitor via Firebase Console atau Mobile App
+```cpp
+void loop() {
+  if (Firebase.ready()) {
+    float suhu = readTemperature();  // Dari sensor DHT22
+    Firebase.RTDB.setFloat(&fbdo, "/ruangan/suhu", suhu);
+    delay(10000);  // Update tiap 10 detik
+  }
+}
+```
 
-### 2. Remote Control
+### 2. 💡 Remote Control LED via Firebase
 
-- Baca status control dari Firebase
-- Kontrol LED, relay, motor, dll
-- Update dari web dashboard atau mobile app
+```cpp
+void loop() {
+  if (Firebase.ready()) {
+    if (Firebase.RTDB.getBool(&fbdo, "/kontrol/led")) {
+      bool ledStatus = fbdo.boolData();
+      digitalWrite(LED_PIN, ledStatus ? HIGH : LOW);
+    }
+    delay(1000);
+  }
+}
+```
 
-### 3. Data Logging
+### 3. 📊 Data Logging dengan Timestamp
 
-- Simpan log data dengan timestamp
-- Analisis data historis
-- Export ke CSV atau visualisasi
+```cpp
+void loop() {
+  if (Firebase.ready()) {
+    String path = "/log/" + String(millis());
+    FirebaseJson data;
+    data.set("suhu", readTemp());
+    data.set("waktu", getTime());
+    Firebase.RTDB.setJSON(&fbdo, path, &data);
+    delay(60000);  // Log tiap 1 menit
+  }
+}
+```
 
-## 📚 Referensi
+## 📚 Referensi & Dokumentasi
 
-- [Firebase ESP32 Client Documentation](https://github.com/mobizt/Firebase-ESP32)
-- [Firebase Realtime Database Documentation](https://firebase.google.com/docs/database)
+- [Firebase ESP Client - GitHub](https://github.com/mobizt/Firebase-ESP-Client)
+- [Firebase Realtime Database Docs](https://firebase.google.com/docs/database)
 - [ESP32 Arduino Core](https://github.com/espressif/arduino-esp32)
+
+## 🔑 Tips Mendapatkan Credentials
+
+**API Key & Database URL:**
+
+1. Buka [Firebase Console](https://console.firebase.google.com/)
+2. Pilih project Anda
+3. Klik ⚙️ (Settings) → **Project Settings**
+4. **Web API Key** ada di bagian "General"
+5. **Database URL** ada di menu **Realtime Database** (bagian atas)
+
+**User Email & Password:**
+
+1. Di Firebase Console → **Authentication**
+2. Tab **Users** → **Add User**
+3. Masukkan email & password (simpan baik-baik untuk ESP32)
 
 ## 📄 Lisensi
 
